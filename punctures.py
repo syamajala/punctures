@@ -4,7 +4,6 @@ sys.path.append('/home/seshu/dev/BordProgSage/')
 from bordered import *
 from scoop import futures
 
-
 class Pdisk(PMC):
     
     def __init__(self, punctures, matching=[], intervals=[], arcslid=false, slidto=0):
@@ -105,100 +104,99 @@ class Pdisk(PMC):
         # generating the basis for something after an arcslide
         # generating the basis for something not arcslid
 
-        if __name__ == '__main__':
 
-            if self.arcslid:
-                
-                # much of this code is the same as below, we just have 2 special intervals
-                # to deal with. the top and the interval slid to, if the top == slidto there
-                # is only one special interval to deal with and the code works the same as the non special case
+        if self.arcslid:
 
-                tstr = []
-                toint = self.intervals[self.slidto]
-                
-                for i in self.intervals:
-                    if (i != self.intervals[-1]) and (i != toint):
-                        for j in Combinations(i, 2).list():
-                            stra.append(tuple(j))
-                    elif (i == self.intervals[-1]):        
-                        for j in Combinations(i, 2).list():
-                            top.append(tuple(j))
-                    elif (i == toint):
-                        for j in Combinations(i, 2).list():
-                            tstr.append(tuple(j))
+            # much of this code is the same as below, we just have 2 special intervals
+            # to deal with. the top and the interval slid to, if the top == slidto there
+            # is only one special interval to deal with and the code works the same as the non special case
 
-                for i in top:
-                    x, y = i
-                    if (y-x) == 1:
-                        stra.append(i)  
+            tstr = []
+            toint = self.intervals[self.slidto]
 
-                for i in tstr:
-                    x, y = i
-                    if (y-x) == 1:
-                        stra.append(i)
+            for i in self.intervals:
+                if (i != self.intervals[-1]) and (i != toint):
+                    for j in Combinations(i, 2).list():
+                        stra.append(tuple(j))
+                elif (i == self.intervals[-1]):        
+                    for j in Combinations(i, 2).list():
+                        top.append(tuple(j))
+                elif (i == toint):
+                    for j in Combinations(i, 2).list():
+                        tstr.append(tuple(j))
 
-                for i in Combinations(stra, 2).list():
-                    if self.mstrands(i):
-                        strands.append(i)
+            for i in top:
+                x, y = i
+                if (y-x) == 1:
+                    stra.append(i)  
 
-                for i in stra:
-                    x, y = i
-                    if (y-x) < 2:
-                        strands.append([i])
-                    elif (y-x) == 2:
-                        mlen.append([i])
+            for i in tstr:
+                x, y = i
+                if (y-x) == 1:
+                    stra.append(i)
 
-                for i in range(1, len(self.intervals[-1])):
-                    for j in Combinations(top, i).list():
-                        if self.mstrands(j) and (j not in mlen):
-                            mlen.append(j)
+            for i in Combinations(stra, 2).list():
+                if self.mstrands(i):
+                    strands.append(i)
 
-                for i in range(1, len(toint)):
-                    for j in Combinations(tstr, i).list():
-                        if self.mstrands(j) and (j not in mlen):
-                            mlen.append(j)     
-                                               
-            if not self.arcslid:
-            
-                # first we generate all the 1 moving strands possibilities
-            
-                for i in self.intervals:
-                    if (i != self.intervals[-1]):
-                        for j in Combinations(i, 2).list():
-                            stra.append(tuple(j))
-                    elif (i == self.intervals[-1]):
-                        for j in Combinations(i, 2).list():
-                            top.append(tuple(j))
-                            
-                for i in top:
-                    x, y = i
-                    if (y-x) == 1:
-                        stra.append(i)                                            
+            for i in stra:
+                x, y = i
+                if (y-x) < 2:
+                    strands.append([i])
+                elif (y-x) == 2:
+                    mlen.append([i])
 
-                # then we generate the two 2 moving strand possibilities,
-                # where the two moving strands are on consecutive points on an interval
+            for i in range(1, len(self.intervals[-1])):
+                for j in Combinations(top, i).list():
+                    if self.mstrands(j) and (j not in mlen):
+                        mlen.append(j)
 
-                for i in Combinations(stra, 2).list():
-                    if self.mstrands(i):
-                        strands.append(i)
+            for i in range(1, len(toint)):
+                for j in Combinations(tstr, i).list():
+                    if self.mstrands(j) and (j not in mlen):
+                        mlen.append(j)     
 
-                # next we separate the 1 moving strands that are longer than 1
-                # from the ones of length 1
+        if not self.arcslid:
 
-                for i in stra:
-                    x, y = i
-                    if (y-x) < 2:
-                        strands.append([i])
-                    elif (y-x) >= 2:
-                        mlen.append([i])
+            # first we generate all the 1 moving strands possibilities
 
-                # then we check the top for strands longer than 1
-                # and for multiple strands on top of each other
+            for i in self.intervals:
+                if (i != self.intervals[-1]):
+                    for j in Combinations(i, 2).list():
+                        stra.append(tuple(j))
+                elif (i == self.intervals[-1]):
+                    for j in Combinations(i, 2).list():
+                        top.append(tuple(j))
 
-                for i in range(1, self.punctures):
-                    for j in Combinations(top, i).list():
-                        if self.mstrands(j) and (j not in mlen):
-                            mlen.append(j)
+            for i in top:
+                x, y = i
+                if (y-x) == 1:
+                    stra.append(i)                                            
+
+            # then we generate the two 2 moving strand possibilities,
+            # where the two moving strands are on consecutive points on an interval
+
+            for i in Combinations(stra, 2).list():
+                if self.mstrands(i):
+                    strands.append(i)
+
+            # next we separate the 1 moving strands that are longer than 1
+            # from the ones of length 1
+
+            for i in stra:
+                x, y = i
+                if (y-x) < 2:
+                    strands.append([i])
+                elif (y-x) >= 2:
+                    mlen.append([i])
+
+            # then we check the top for strands longer than 1
+            # and for multiple strands on top of each other
+
+            for i in range(1, self.punctures):
+                for j in Combinations(top, i).list():
+                    if self.mstrands(j) and (j not in mlen):
+                        mlen.append(j)
 
             for i in mlen:
                 if len(i) != 1:
@@ -230,7 +228,6 @@ class Pdisk(PMC):
             ans = list(futures.map(self.pstrand_diagram, args))
 
             basis.extend(ans)
-
 
         self.basis[spinc]= list(set(basis))
         self.basis_computed[spinc] = True
@@ -285,24 +282,24 @@ class Pdisk(PMC):
         sa = []
         ids = self.idem_dict()
 
-        if __name__ == '__main__':
-            
-            a = [(self, i, ids, 0) for i in a]
 
-            ans = list(futures.map(alg_element, a))
-                                
-            for i in ans:
-                sa.extend(i)
-            
-            dgens = list(gens)
-            args = [(i, dgens) for i in sa]
-                    
-            diffsr = list(futures.map(self.diffr, args))
-            
-            args = [(i, dgens) for i in diffsr if i != None]
-            
-            diffsl = list(futures.map(self.diffl, args))
-            
+
+        a = [(self, i, ids, 0) for i in a]
+
+        ans = list(futures.map(alg_element, a))
+
+        for i in ans:
+            sa.extend(i)
+
+        dgens = list(gens)
+        args = [(i, dgens) for i in sa]
+
+        diffsr = list(futures.map(self.diffr, args))
+
+        args = [(i, dgens) for i in diffsr if i != None]
+
+        diffsl = list(futures.map(self.diffl, args))
+
         # build a dict with keys generators, and values lists of pairs (a, x)
         # there is probably a better way to do this, because this is where most of the 
         # time gets eaten up when doing computations
@@ -424,15 +421,14 @@ class Pdisk(PMC):
         ids = self.idem_dict()        
         answer = self.zero()
         ans = []
-        if __name__ == '__main__':
             
-            for i in self.intervals:
-                for j in CartesianProduct(i, i):
-                    x, y = tuple(j)
-                    if (x != y) and (x < y):
-                        arc_list.append((self, [tuple(j)], ids, spinc))
-            
-            ans = list(futures.map(alg_element, arc_list))
+        for i in self.intervals:
+            for j in CartesianProduct(i, i):
+                x, y = tuple(j)
+                if (x != y) and (x < y):
+                    arc_list.append((self, [tuple(j)], ids, spinc))
+
+        ans = list(futures.map(alg_element, arc_list))
             
         for i in ans:
             answer.extend(i)
@@ -584,43 +580,41 @@ class PTypeDStr(TypeDStr):
 
         alg_gens = self.pmc.alg_basis()
 
-        if __name__== '__main__':
-            
-            args = []
-            for i in CartesianProduct(range(0, len(self.basis)), range(0, len(alg_gens)), range(0, len(other.basis))).list():
-                x,y,z = tuple(i)
-                args.append((self.basis[x],alg_gens[y],other.basis[z]))
+        args = []
+        for i in CartesianProduct(range(0, len(self.basis)), range(0, len(alg_gens)), range(0, len(other.basis))).list():
+            x,y,z = tuple(i)
+            args.append((self.basis[x],alg_gens[y],other.basis[z]))
 
-            gens = list(futures.map(self.generate_gens, args))
+        gens = list(futures.map(self.generate_gens, args))
 
-            ans = alg_gens
-            mult = []
-            for i in range(2, self.pmc.punctures + 2):                
-                ans = list(futures.map(self.mult, ans))
-                ans = reduce(list.__add__, ans, [])                        
-                ans = list(set(ans))
-                mult.extend(ans)
-                                           
-            args = []
-            
-            for i in CartesianProduct(range(0, len(self.basis)), range(0, len(mult)), range(0, len(other.basis))).list():
-                x,y,z = tuple(i)
-                args.append((self.basis[x],mult[y],other.basis[z]))
+        ans = alg_gens
+        mult = []
+        for i in range(2, self.pmc.punctures + 2):                
+            ans = list(futures.map(self.mult, ans))
+            ans = reduce(list.__add__, ans, [])                        
+            ans = list(set(ans))
+            mult.extend(ans)
 
-            ans = list(futures.map(self.generate_gens, args))
+        args = []
 
-            gens.extend(ans)
-                                                                                        
-            while gens.count(None) != 0:
-                gens.remove(None)
-                                                                                                                   
-            diffs = dict()            
-            args = [(i, other, diffs) for i in gens]
+        for i in CartesianProduct(range(0, len(self.basis)), range(0, len(mult)), range(0, len(other.basis))).list():
+            x,y,z = tuple(i)
+            args.append((self.basis[x],mult[y],other.basis[z]))
+
+        ans = list(futures.map(self.generate_gens, args))
+
+        gens.extend(ans)
+
+        while gens.count(None) != 0:
+            gens.remove(None)
+
+        diffs = dict()            
+        args = [(i, other, diffs) for i in gens]
 #            pool.map_async(self.diff, args, chunksize=1)
-            for i in args:
-                self.diff(i)
+        for i in args:
+            self.diff(i)
 
-            diffs = dict(diffs)
+        diffs = dict(diffs)
 
         return ChainCx(diffs)
 
@@ -715,55 +709,52 @@ class PUnderslide(Underslide):
         xidems = [([()], self.pmc_2.idempotents()[-1])]
         pmc1idems = [i[0] for i in self.pmc_1.idempotents() if len(i) == 1]        
 
-        if __name__ == '__main__':
+        # 
+        # what we do is we build a dictionary of complementary idempotents for idempotents consisting of 1 term
+        # then we walk through the list of the rest of the idempotents and for each element in that idempotent,
+        # we look up what the complementary idempotent was in the dict, and then take the intersection of everything
+        #
 
-            
-            # 
-            # what we do is we build a dictionary of complementary idempotents for idempotents consisting of 1 term
-            # then we walk through the list of the rest of the idempotents and for each element in that idempotent,
-            # we look up what the complementary idempotent was in the dict, and then take the intersection of everything
-            #
-            
-            ids = list(futures.map(self.complementary_idem, pmc1idems))
+        ids = list(futures.map(self.complementary_idem, pmc1idems))
 
-            for i in ids:
-                x, y = i
-                xidems.append(([x], y))
-                                            
-            ids = dict([(i,frozenset(v)) for i,v in ids])
-                
-            pmc1idems = [i for i in self.pmc_1.idempotents() if len(i) != 1]
-            args = [(i, ids) for i in pmc1idems]
-            
-            xidems.extend(list(futures.map(self.build_comp_idem, args)))
-                                            
+        for i in ids:
+            x, y = i
+            xidems.append(([x], y))
+
+        ids = dict([(i,frozenset(v)) for i,v in ids])
+
+        pmc1idems = [i for i in self.pmc_1.idempotents() if len(i) != 1]
+        args = [(i, ids) for i in pmc1idems]
+
+        xidems.extend(list(futures.map(self.build_comp_idem, args)))
+
         #Generators of type Y (sub-complementary)                                                                                                                                                                                            
 
-            if self.b1 > self.b2:
-                mstrand = (self.b2, self.b1)
-            elif self.b1 < self.b2: # i don't think this can happen for an underslide, but better safe than sorry.
-                mstrand = (self.b1, self.b2)
-            if self.b1p > self.b2p:
-                mstrandp = (self.b2p, self.b1p)
-            elif self.b1p < self.b2p:
-                mstrandp = (self.b1p, self.b2p)
-            if self.c1 > self.c2:
-                mstrando = (self.c2, self.c1)
-            elif self.c2 > self.c1:
-                mstrando = (self.c1, self.c2)    
-                  
-            args = [(i, mstrand, mstrandp, mstrando) for i in xidems]      
+        if self.b1 > self.b2:
+            mstrand = (self.b2, self.b1)
+        elif self.b1 < self.b2: # i don't think this can happen for an underslide, but better safe than sorry.
+            mstrand = (self.b1, self.b2)
+        if self.b1p > self.b2p:
+            mstrandp = (self.b2p, self.b1p)
+        elif self.b1p < self.b2p:
+            mstrandp = (self.b1p, self.b2p)
+        if self.c1 > self.c2:
+            mstrando = (self.c2, self.c1)
+        elif self.c2 > self.c1:
+            mstrando = (self.c1, self.c2)    
 
-            yidems = futures.map(self.almost_complementary_idem, args)
-            
-            while yidems.count(None) != 0:
-                yidems.remove(None)
-             
-            for i in yidems:
-                while yidems.count(i) != 1:
-                    yidems.remove(i)
-                                                                                                            
-            self.gen_idems = xidems + yidems
+        args = [(i, mstrand, mstrandp, mstrando) for i in xidems]      
+
+        yidems = futures.map(self.almost_complementary_idem, args)
+
+        while yidems.count(None) != 0:
+            yidems.remove(None)
+
+        for i in yidems:
+            while yidems.count(i) != 1:
+                yidems.remove(i)
+
+        self.gen_idems = xidems + yidems
             
         
     def dd_mod(self):
@@ -843,59 +834,59 @@ class POverslide(Overslide):
         xidems = [([()], self.pmc_2.idempotents()[-1])]
         pmc1idems = [i[0] for i in self.pmc_1.idempotents() if len(i) == 1]        
 
-        if __name__ == '__main__':
-            # 
-            # what we do is we build a dictionary of complementary idempotents for idempotents consisting of 1 term
-            # then we walk through the list of the rest of the idempotents and for each element in that idempotent,
-            # we look up what the complementary idempotent was in the dict, and then take the intersection of everything
-            #
-            
-            ids = list(futures.map(self.complementary_idem, pmc1idems))
 
-            for i in ids:
-                x, y = i
-                xidems.append(([x], y))
-                                            
-            ids = dict([(i,frozenset(v)) for i,v in ids])
-                
-            pmc1idems = [i for i in self.pmc_1.idempotents() if len(i) != 1]
-            args = [(i, ids) for i in pmc1idems]
-            
-            xidems.extend(list(futures.map(self.build_comp_idem, args)))
+        # 
+        # what we do is we build a dictionary of complementary idempotents for idempotents consisting of 1 term
+        # then we walk through the list of the rest of the idempotents and for each element in that idempotent,
+        # we look up what the complementary idempotent was in the dict, and then take the intersection of everything
+        #
+
+        ids = list(futures.map(self.complementary_idem, pmc1idems))
+
+        for i in ids:
+            x, y = i
+            xidems.append(([x], y))
+
+        ids = dict([(i,frozenset(v)) for i,v in ids])
+
+        pmc1idems = [i for i in self.pmc_1.idempotents() if len(i) != 1]
+        args = [(i, ids) for i in pmc1idems]
+
+        xidems.extend(list(futures.map(self.build_comp_idem, args)))
                                             
         #Generators of type Y (sub-complementary)                                                                                                                                                                                            
 
-            # copied from PUnderslide.generate_gen_idems()
-            
-            if self.b1 > self.b2:
-                mstrand = (self.b2, self.b1)
-            elif self.b1 < self.b2: # i don't think this can happen for an underslide, but better safe than sorry.
-                mstrand = (self.b1, self.b2)
-            if self.b1p > self.b2p:
-                mstrandp = (self.b2p, self.b1p)
-            elif self.b1p < self.b2p:
-                mstrandp = (self.b1p, self.b2p)
-            if self.c1 > self.c2:
-                mstrando = (self.c2, self.c1)
-            elif self.c2 > self.c1:
-                mstrando = (self.c1, self.c2)    
-            if self.c1p > self.c2p:
-                mstrandop = (self.c2p, self.c1p)
-            elif self.c2p > self.c1p:
-                mstrandop = (self.c1p, self.c2p)
-                  
-            args = [(i, mstrand, mstrandp, mstrando, mstrandop) for i in xidems]      
+        # copied from PUnderslide.generate_gen_idems()
 
-            yidems = list(futures.map(self.almost_complementary_idem, args))
-            
-            while yidems.count(None) != 0:
-                yidems.remove(None)
-            
-            for i in yidems:
-                while yidems.count(i) != 1:
-                    yidems.remove(i)
-                                                                            
-            self.gen_idems = xidems + yidems
+        if self.b1 > self.b2:
+            mstrand = (self.b2, self.b1)
+        elif self.b1 < self.b2: # i don't think this can happen for an underslide, but better safe than sorry.
+            mstrand = (self.b1, self.b2)
+        if self.b1p > self.b2p:
+            mstrandp = (self.b2p, self.b1p)
+        elif self.b1p < self.b2p:
+            mstrandp = (self.b1p, self.b2p)
+        if self.c1 > self.c2:
+            mstrando = (self.c2, self.c1)
+        elif self.c2 > self.c1:
+            mstrando = (self.c1, self.c2)    
+        if self.c1p > self.c2p:
+            mstrandop = (self.c2p, self.c1p)
+        elif self.c2p > self.c1p:
+            mstrandop = (self.c1p, self.c2p)
+
+        args = [(i, mstrand, mstrandp, mstrando, mstrandop) for i in xidems]      
+
+        yidems = list(futures.map(self.almost_complementary_idem, args))
+
+        while yidems.count(None) != 0:
+            yidems.remove(None)
+
+        for i in yidems:
+            while yidems.count(i) != 1:
+                yidems.remove(i)
+
+        self.gen_idems = xidems + yidems
             
 
     def dd_mod(self):
@@ -959,72 +950,70 @@ class PTypeDDStr(TypeDDStr):
         for i in CartesianProduct(range(0, len(self.basis)), range(0, len(other.basis)), range(0, len(self.pmc_1.alg_basis()))).list():
             m, n, a = tuple(i)
             args.append((self.basis[m], other.basis[n], self.pmc_1.alg_basis()[a]))
-        
-        if __name__ == '__main__':
+    
+        mor_basis = list(futures.map(self.compute_basis, args))
 
-            
-            mor_basis = list(futures.map(self.compute_basis, args))
+        ans = self.pmc_1.alg_basis()
+        mult = []
+        for i in range(2, self.pmc_1.punctures + 2):                
+            ans = list(futures.map(self.mult, ans))
+            ans = reduce(list.__add__, ans, [])                        
+            ans = list(set(ans))
+            mult.extend(ans)
 
-            ans = self.pmc_1.alg_basis()
-            mult = []
-            for i in range(2, self.pmc_1.punctures + 2):                
-                ans = list(futures.map(self.mult, ans))
-                ans = reduce(list.__add__, ans, [])                        
-                ans = list(set(ans))
-                mult.extend(ans)
-                                           
-            args = []            
-            for i in CartesianProduct(range(0, len(self.basis)), range(0, len(other.basis)), range(0, len(mult))).list():
-                m, n, a = tuple(i)
-                args.append((self.basis[m], other.basis[n], mult[a]))
+        args = []            
+        for i in CartesianProduct(range(0, len(self.basis)), range(0, len(other.basis)), range(0, len(mult))).list():
+            m, n, a = tuple(i)
+            args.append((self.basis[m], other.basis[n], mult[a]))
 
-            mor_basis.extend(list(futures.map(self.compute_basis, args)))
-            
-            while mor_basis.count(None) != 0:
-                mor_basis.remove(None)
+        mor_basis.extend(list(futures.map(self.compute_basis, args)))
 
-            diffs = dict()
-            #delta^1 on Mor in three parts.
-            #First: differentiating the algebra element
-            for f in mor_basis:
-                diffs[f]=DElt({},pmc=self.pmc_2)
-                (m,a,n)=f.name
-                for b in a.differential():
-                    diffs[f]=diffs[f]+DElt({DGen((m,b,n),pmc=self.pmc_2,idem=m.idem_2):AlgElt([Strand_Diagram(self.pmc_2,[],m.idem_2)])})
-            
-            #Second: differentiating the image (element of other)
-            #        print diffs   
-            for f in mor_basis:   
-                (m,a,n)=f.name
-                adn = AlgElt([a])*other.delta1(n)
-                for (b,p) in adn.basis_expansion():
-                    diffs[f] = diffs[f]+DElt({DGen((m,b,p),pmc=self.pmc_2,idem=m.idem_2):AlgElt([Strand_Diagram(self.pmc_2,[],m.idem_2)])})
+        while mor_basis.count(None) != 0:
+            mor_basis.remove(None)
 
-            #Third: differentiating the source (element of self). This is the only part which outputs non-idempotent algebra elements.
-            #        print diffs
-            for f in mor_basis:
-                (m,a,n)=f.name
-                for l in self.basis:
-                    dl=self.delta1(l)
-                    if m in dl.keys():
-                        for b in dl[m].keys():
-                            if b*a:
-                                diffs[f] = diffs[f]+DElt({DGen((l,b*a,n),pmc=self.pmc_2,idem=l.idem_2):dl[m][b]})
+        diffs = dict()
+        #delta^1 on Mor in three parts.
+        #First: differentiating the algebra element
+        for f in mor_basis:
+            diffs[f]=DElt({},pmc=self.pmc_2)
+            (m,a,n)=f.name
+            for b in a.differential():
+                diffs[f]=diffs[f]+DElt({DGen((m,b,n),pmc=self.pmc_2,idem=m.idem_2):AlgElt([Strand_Diagram(self.pmc_2,[],m.idem_2)])})
 
-            #        print diffs
-            #Now view PMC as over opposite algebra:
-            #First, reverse the idempotents.
-            rev_basis = list()
-            for f in mor_basis:
-                (m,a,n)=f.name
-                rev_idem = list()
-                for (i,j) in m.idem_2:
-                    rev_idem.append((4*self.pmc_2.genus-1-j,4*self.pmc_2.genus-1-i))
-                rev_basis.append(DGen((m,a,n),pmc=self.pmc_2,idem=rev_idem))
-            rev_diffs = dict()
-            #Now, reverse the algebra element outputs.
-            for f in diffs.keys():
-                rev_diffs[f]=diffs[f].opposite()
+        #Second: differentiating the image (element of other)
+        #        print diffs   
+        for f in mor_basis:   
+            (m,a,n)=f.name
+            adn = AlgElt([a])*other.delta1(n)
+            for (b,p) in adn.basis_expansion():
+                diffs[f] = diffs[f]+DElt({DGen((m,b,p),pmc=self.pmc_2,idem=m.idem_2):AlgElt([Strand_Diagram(self.pmc_2,[],m.idem_2)])})
+
+        #Third: differentiating the source (element of self). This is the only part which outputs non-idempotent algebra elements.
+        #        print diffs
+        for f in mor_basis:
+            (m,a,n)=f.name
+            for l in self.basis:
+                dl=self.delta1(l)
+                if m in dl.keys():
+                    for b in dl[m].keys():
+                        if b*a:
+                            diffs[f] = diffs[f]+DElt({DGen((l,b*a,n),pmc=self.pmc_2,idem=l.idem_2):dl[m][b]})
+
+        #        print diffs
+        #Now view PMC as over opposite algebra:
+        #First, reverse the idempotents.
+        rev_basis = list()
+        for f in mor_basis:
+            (m,a,n)=f.name
+            rev_idem = list()
+            for (i,j) in m.idem_2:
+                rev_idem.append((4*self.pmc_2.genus-1-j,4*self.pmc_2.genus-1-i))
+            rev_basis.append(DGen((m,a,n),pmc=self.pmc_2,idem=rev_idem))
+        rev_diffs = dict()
+        #Now, reverse the algebra element outputs.
+        for f in diffs.keys():
+            rev_diffs[f]=diffs[f].opposite()
+    
         return PTypeDStr(self.pmc_2.opposite(), rev_basis, rev_diffs)        
 
     def compute_basis(self, args):
@@ -1043,3 +1032,4 @@ class PTypeDDStr(TypeDDStr):
             if l and (l.strands != []) and (l not in b) and (l not in ans):
                 ans.append(l)
         return ans
+
