@@ -282,8 +282,6 @@ class Pdisk(PMC):
         sa = []
         ids = self.idem_dict()
 
-
-
         a = [(self, i, ids, 0) for i in a]
 
         ans = list(futures.map(alg_element, a))
@@ -296,8 +294,7 @@ class Pdisk(PMC):
 
         diffsr = list(futures.map(self.diffr, args))
 
-        args = [(i, dgens) for i in diffsr if i != None]
-
+        args = [(i, dgens) for i in diffsr if i != 0]
         diffsl = list(futures.map(self.diffl, args))
 
         # build a dict with keys generators, and values lists of pairs (a, x)
@@ -315,13 +312,17 @@ class Pdisk(PMC):
                 diffs[i] = []
         
         return PTypeDStr(self, gens, diffs)        
-         
+
+
     def diffr(self, args):
         sa, gens = args
         for i in gens:
             if sa.left_idem==i.idem:
                 return (i, sa)
-            
+
+        return 0
+
+
     def diffl(self, args):
         sa, gens = args
         x, y = sa
@@ -400,7 +401,10 @@ class Pdisk(PMC):
                if self.is_underslide(i,j) and (r<w) and (r>v):
                    ints[r] = [x-1 for x in s]
                elif self.is_overslide(i,j) and (r<w) and (r>=v):
-                   ints[r] = [x-1 for x in s]
+                   if r != v:
+                       ints[r] = [x-1 for x in s]
+                   elif r == v:
+                       ints[r] = (s[:s.index(j)] + [x-1 for x in s[s.index(j):]])                   
                elif r == w:    
                    ints[r] = ([x-1 for x in s[:s.index(z)+1]] + s[s.index(z):])
             elif v == (len(ints)-1):
@@ -464,7 +468,7 @@ class Pdisk(PMC):
         for i, v in enumerate(ints):
             ints[i] = map(lambda x: 7-x, v)
 
-        return Pdisk(self.genus, revmatch, ints) 
+        return Pdisk(self.genus, revmatch, ints, self.arcslid, self.slidto) 
         
     def check_interval(self, x, y):        
         for i in self.intervals:
@@ -702,10 +706,10 @@ class PUnderslide(Underslide):
             return (a, b)
                     
     def generate_gen_idems(self):
-        """Generates a list of pairs of idempotents for generators for the DD module. Stored in self.gen_idems                                                                                                                               
-        Currently restricts to the middle SpinC structure.                                                                                                                                                                                   
-        """
-        #Generators of type X (complementary)                                                                                                                                                                                                
+        """Generates a list of pairs of idempotents for generators for the DD module. Stored in self.gen_idems               Currently restricts to the middle SpinC"""
+
+        #Generators of type X (complementary)                                                                        
+
         xidems = [([()], self.pmc_2.idempotents()[-1])]
         pmc1idems = [i[0] for i in self.pmc_1.idempotents() if len(i) == 1]        
 
@@ -728,7 +732,7 @@ class PUnderslide(Underslide):
 
         xidems.extend(list(futures.map(self.build_comp_idem, args)))
 
-        #Generators of type Y (sub-complementary)                                                                                                                                                                                            
+        #Generators of type Y (sub-complementary)
 
         if self.b1 > self.b2:
             mstrand = (self.b2, self.b1)
@@ -745,7 +749,7 @@ class PUnderslide(Underslide):
 
         args = [(i, mstrand, mstrandp, mstrando) for i in xidems]      
 
-        yidems = futures.map(self.almost_complementary_idem, args)
+        yidems = list(futures.map(self.almost_complementary_idem, args))
 
         while yidems.count(None) != 0:
             yidems.remove(None)
@@ -827,13 +831,10 @@ class POverslide(Overslide):
             return (a, b)
                     
     def generate_gen_idems(self):
-        """Generates a list of pairs of idempotents for generators for the DD module. Stored in self.gen_idems                                                                                                                               
-        Currently restricts to the middle SpinC structure.                                                                                                                                                                                   
-        """
-        #Generators of type X (complementary)                                                                                                                                                                                                
+        """Generates a list of pairs of idempotents for generators for the DD module. Stored in self.gen_idems                                                                                                                           a        Currently restricts to the middle SpinC structure.                                                                   """
+        #Generators of type X (complementary)                                                                                                                                                                                            
         xidems = [([()], self.pmc_2.idempotents()[-1])]
         pmc1idems = [i[0] for i in self.pmc_1.idempotents() if len(i) == 1]        
-
 
         # 
         # what we do is we build a dictionary of complementary idempotents for idempotents consisting of 1 term
@@ -854,8 +855,7 @@ class POverslide(Overslide):
 
         xidems.extend(list(futures.map(self.build_comp_idem, args)))
                                             
-        #Generators of type Y (sub-complementary)                                                                                                                                                                                            
-
+        #Generators of type Y (sub-complementary)
         # copied from PUnderslide.generate_gen_idems()
 
         if self.b1 > self.b2:
@@ -938,9 +938,9 @@ class PTypeDDStr(TypeDDStr):
     
     def mor_to_d(self, other):
         """Returns the chain complex of homomorphisms over A(pmc_1) from self to other, where other is a type D structure.
-
         Examples:
         """
+
         if self.pmc_1 != other.pmc:
             raise Exception("Can only compute Mor's between structures over the same algebra.")
         #Compile a basis for Mor
@@ -968,8 +968,8 @@ class PTypeDDStr(TypeDDStr):
 
         mor_basis.extend(list(futures.map(self.compute_basis, args)))
 
-        while mor_basis.count(None) != 0:
-            mor_basis.remove(None)
+        while mor_basis.count(0) != 0:
+            mor_basis.remove(0)
 
         diffs = dict()
         #delta^1 on Mor in three parts.
@@ -1020,6 +1020,8 @@ class PTypeDDStr(TypeDDStr):
         m, n, a = args
         if (Set(m.idem_1)==Set(a.left_idem)) and (Set(n.idem)==Set(a.right_idem)):
             return DGen((m,a,n),pmc=self.pmc_2,idem=m.idem_2)
+        
+        return 0
             
     def mult(self, i):
         ans = []
