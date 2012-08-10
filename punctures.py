@@ -398,15 +398,12 @@ class Pdisk(PMC):
         
         for r,s in enumerate(ints):
             if v != (len(ints)-1):
-               if self.is_underslide(i,j) and (r<w) and (r>v):
-                   ints[r] = [x-1 for x in s]
-               elif self.is_overslide(i,j) and (r<w) and (r>=v):
-                   if r != v:
-                       ints[r] = [x-1 for x in s]
-                   elif r == v:
-                       ints[r] = (s[:s.index(j)] + [x-1 for x in s[s.index(j):]])                   
-               elif r == w:    
+                if (r<w) and (r>v):
+                    ints[r] = [x-1 for x in s]
+                elif r == w:    
                    ints[r] = ([x-1 for x in s[:s.index(z)+1]] + s[s.index(z):])
+                elif r == v:
+                   ints[r] = (s[:s.index(j)] + [x-1 for x in s[s.index(j):]])
             elif v == (len(ints)-1):
                if (r>w) and (r<v):
                    ints[r] = [x+1 for x in s]
