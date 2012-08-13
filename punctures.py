@@ -2,7 +2,16 @@ import sys
 sys.path.append('/home/seshu/dev/BordProgSage/')
 
 from bordered import *
-from scoop import futures
+from IPython.parallel import Client
+
+def setup_view():
+    global c 
+    c = Client()
+    global dview 
+    dview = c[:]
+    dview.execute("import sys")
+    dview.execute("sys.path.append('/home/seshu/dev/punctures')")
+    dview.execute("from punctures import *")
 
 class Pdisk(PMC):
     
@@ -99,7 +108,7 @@ class Pdisk(PMC):
         basis = []
         mlen = []
         top = []        
-                
+        
         # we have two cases to deal with:
         # generating the basis for something after an arcslide
         # generating the basis for something not arcslid
@@ -156,7 +165,7 @@ class Pdisk(PMC):
                     if self.mstrands(j) and (j not in mlen):
                         mlen.append(j)     
 
-        if not self.arcslid:
+        elif not self.arcslid:
 
             # first we generate all the 1 moving strands possibilities
 
@@ -198,36 +207,35 @@ class Pdisk(PMC):
                     if self.mstrands(j) and (j not in mlen):
                         mlen.append(j)
 
-            for i in mlen:
-                if len(i) != 1:
-                    strands.append(i)
+        for i in mlen:
+            if len(i) != 1:
+                strands.append(i)
 
-            mlen = [i for i in mlen if len(i) == 1]
+        mlen = [i for i in mlen if len(i) == 1]
 
-            ids = self.idem_dict(spinc)
+        ids = self.idem_dict(spinc)
 
-            args = [(self, i, ids, spinc) for i in strands]
-            ans = list(futures.map(alg_element, args))
-            
+        args = [(self, i, ids, spinc) for i in strands]
+        ans = dview.map_sync(alg_element, args)
 
-            for i in ans:
-                basis.extend(i)
+        for i in ans:
+            basis.extend(i)
 
-            mlen_ids = list(futures.map(self.compute_mlen_idem, mlen))
-            mlen_ids = dict(mlen_ids)
-            
-            args = [(self, i, ids, spinc) for i in mlen]
-            ans = list(futures.map(alg_element, args))
+        mlen_ids = dview.map_sync(self.compute_mlen_idem, mlen)
+        mlen_ids = dict(mlen_ids)
 
-            for i in ans:
-                for j in i:
-                    if set(j.left_idem).intersection(set(mlen_ids[j.strands[0]])):
-                        basis.append(j)                          
-            
-            args = [([], i) for i in self.idempotents()]
-            ans = list(futures.map(self.pstrand_diagram, args))
+        args = [(self, i, ids, spinc) for i in mlen]
+        ans = dview.map_sync(alg_element, args)
 
-            basis.extend(ans)
+        for i in ans:
+            for j in i:
+                if set(j.left_idem).intersection(set(mlen_ids[j.strands[0]])):
+                    basis.append(j)                          
+
+        args = [([], i) for i in self.idempotents()]
+        ans = dview.map_sync(self.pstrand_diagram, args)
+
+        basis.extend(ans)
 
         self.basis[spinc]= list(set(basis))
         self.basis_computed[spinc] = True
@@ -284,7 +292,7 @@ class Pdisk(PMC):
 
         a = [(self, i, ids, 0) for i in a]
 
-        ans = list(futures.map(alg_element, a))
+        ans = dview.map_sync(alg_element, a)
 
         for i in ans:
             sa.extend(i)
@@ -292,10 +300,10 @@ class Pdisk(PMC):
         dgens = list(gens)
         args = [(i, dgens) for i in sa]
 
-        diffsr = list(futures.map(self.diffr, args))
+        diffsr = dview.map_sync(self.diffr, args)
 
         args = [(i, dgens) for i in diffsr if i != 0]
-        diffsl = list(futures.map(self.diffl, args))
+        diffsl = dview.map_sync(self.diffl, args)
 
         # build a dict with keys generators, and values lists of pairs (a, x)
         # there is probably a better way to do this, because this is where most of the 
@@ -429,7 +437,7 @@ class Pdisk(PMC):
                 if (x != y) and (x < y):
                     arc_list.append((self, [tuple(j)], ids, spinc))
 
-        ans = list(futures.map(alg_element, arc_list))
+        ans = dview.map_sync(alg_element, arc_list)
             
         for i in ans:
             answer.extend(i)
@@ -512,7 +520,7 @@ class label():
             self.label2[self.label1[i]] = i
                
         self.mpairs.pop()
-                                                             
+
 def alg_element(args):
     "Returns list (sum) of all algebra elements in A(pmc) with the given strands, and any consistent idempotents."
     pmc, strands, idems, spinc = args  
@@ -586,12 +594,12 @@ class PTypeDStr(TypeDStr):
             x,y,z = tuple(i)
             args.append((self.basis[x],alg_gens[y],other.basis[z]))
 
-        gens = list(futures.map(self.generate_gens, args))
+        gens = dview.map_sync(self.generate_gens, args)
 
         ans = alg_gens
         mult = []
         for i in range(2, self.pmc.punctures + 2):                
-            ans = list(futures.map(self.mult, ans))
+            ans = dview.map_sync(self.mult, ans)
             ans = reduce(list.__add__, ans, [])                        
             ans = list(set(ans))
             mult.extend(ans)
@@ -602,7 +610,7 @@ class PTypeDStr(TypeDStr):
             x,y,z = tuple(i)
             args.append((self.basis[x],mult[y],other.basis[z]))
 
-        ans = list(futures.map(self.generate_gens, args))
+        ans = dview.map_sync(self.generate_gens, args)
 
         gens.extend(ans)
 
@@ -715,8 +723,8 @@ class PUnderslide(Underslide):
         # then we walk through the list of the rest of the idempotents and for each element in that idempotent,
         # we look up what the complementary idempotent was in the dict, and then take the intersection of everything
         #
-
-        ids = list(futures.map(self.complementary_idem, pmc1idems))
+                
+        ids = dview.map_sync(self.complementary_idem, pmc1idems)
 
         for i in ids:
             x, y = i
@@ -727,7 +735,7 @@ class PUnderslide(Underslide):
         pmc1idems = [i for i in self.pmc_1.idempotents() if len(i) != 1]
         args = [(i, ids) for i in pmc1idems]
 
-        xidems.extend(list(futures.map(self.build_comp_idem, args)))
+        xidems.extend(dview.map_sync(self.build_comp_idem, args))
 
         #Generators of type Y (sub-complementary)
 
@@ -746,7 +754,7 @@ class PUnderslide(Underslide):
 
         args = [(i, mstrand, mstrandp, mstrando) for i in xidems]      
 
-        yidems = list(futures.map(self.almost_complementary_idem, args))
+        yidems = dview.map_sync(self.almost_complementary_idem, args)
 
         while yidems.count(None) != 0:
             yidems.remove(None)
@@ -839,7 +847,7 @@ class POverslide(Overslide):
         # we look up what the complementary idempotent was in the dict, and then take the intersection of everything
         #
 
-        ids = list(futures.map(self.complementary_idem, pmc1idems))
+        ids = dview.map_sync(self.complementary_idem, pmc1idems)
 
         for i in ids:
             x, y = i
@@ -850,7 +858,7 @@ class POverslide(Overslide):
         pmc1idems = [i for i in self.pmc_1.idempotents() if len(i) != 1]
         args = [(i, ids) for i in pmc1idems]
 
-        xidems.extend(list(futures.map(self.build_comp_idem, args)))
+        xidems.extend(dview.map_sync(self.build_comp_idem, args))
                                             
         #Generators of type Y (sub-complementary)
         # copied from PUnderslide.generate_gen_idems()
@@ -874,7 +882,7 @@ class POverslide(Overslide):
 
         args = [(i, mstrand, mstrandp, mstrando, mstrandop) for i in xidems]      
 
-        yidems = list(futures.map(self.almost_complementary_idem, args))
+        yidems = dview.map_sync(self.almost_complementary_idem, args)
 
         while yidems.count(None) != 0:
             yidems.remove(None)
@@ -948,12 +956,12 @@ class PTypeDDStr(TypeDDStr):
             m, n, a = tuple(i)
             args.append((self.basis[m], other.basis[n], self.pmc_1.alg_basis()[a]))
     
-        mor_basis = list(futures.map(self.compute_basis, args))
+        mor_basis = dview.map_sync(self.compute_basis, args)
 
         ans = self.pmc_1.alg_basis()
         mult = []
         for i in range(2, self.pmc_1.punctures + 2):                
-            ans = list(futures.map(self.mult, ans))
+            ans = dview.map_sync(self.mult, ans)
             ans = reduce(list.__add__, ans, [])                        
             ans = list(set(ans))
             mult.extend(ans)
@@ -963,7 +971,7 @@ class PTypeDDStr(TypeDDStr):
             m, n, a = tuple(i)
             args.append((self.basis[m], other.basis[n], mult[a]))
 
-        mor_basis.extend(list(futures.map(self.compute_basis, args)))
+        mor_basis.extend(dview.map_sync(self.compute_basis, args))
 
         while mor_basis.count(0) != 0:
             mor_basis.remove(0)
