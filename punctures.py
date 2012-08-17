@@ -1,16 +1,18 @@
 import sys
-sys.path.append('/home/seshu/dev/BordProgSage/')
+import os
+sys.path.append(os.path.expanduser("~/dev/BordProgSage/"))
 
 from bordered import *
 from IPython.parallel import Client, Reference
 
 def setup_view():
     global c 
-    c = Client(profile='ssh')
+    c = Client()
     global dview 
     dview = c[:]
     dview.execute("import sys")
-    dview.execute("sys.path.append('/home/seshu/dev/punctures')")
+    dview.execute("import os")
+    dview.execute("sys.path.append(os.path.expanduser('~/dev/punctures'))")
     dview.execute("from punctures import *")
 
 class Pdisk(PMC):
@@ -239,7 +241,6 @@ class Pdisk(PMC):
 
         self.basis[spinc]= list(set(basis))
         self.basis_computed[spinc] = True
-
 
     def pstrand_diagram(self, args):
         strands, id = args
@@ -553,10 +554,8 @@ def alg_element(args):
 
         id = list(id.pop().intersection(*id))
 
-        for i in id:
-            if l_idem_compat(pmc, strands, list(i)):
-                answer.append(Strand_Diagram(pmc,strands,left_idem=list(i)))
-    
+        answer = [Strand_Diagram(pmc, strands, left_idem=list(i)) for i in id if l_idem_compat(pmc, strands, list(i))]
+
     if not answer:
         id = []
         for i in strands:
@@ -589,11 +588,7 @@ class PTypeDStr(TypeDStr):
 
         alg_gens = self.pmc.alg_basis()
 
-        args = []
-        for i in CartesianProduct(range(0, len(self.basis)), range(0, len(alg_gens)), range(0, len(other.basis))).list():
-            x,y,z = tuple(i)
-            args.append((self.basis[x],alg_gens[y],other.basis[z]))
-
+        args = [(self.basis[i[0]],alg_gens[i[1]],other.basis[i[2]]) for i in CartesianProduct(range(0, len(self.basis)), range(0, len(alg_gens)), range(0, len(other.basis)))]
         gens = dview.map_sync(self.generate_gens, args)
 
         ans = alg_gens
@@ -604,12 +599,7 @@ class PTypeDStr(TypeDStr):
             ans = list(set(ans))
             mult.extend(ans)
 
-        args = []
-
-        for i in CartesianProduct(range(0, len(self.basis)), range(0, len(mult)), range(0, len(other.basis))).list():
-            x,y,z = tuple(i)
-            args.append((self.basis[x],mult[y],other.basis[z]))
-
+        args = [(self.basis[i[0]],mult[i[1]],other.basis[i[2]]) for i in CartesianProduct(range(0, len(self.basis)), range(0, len(mult)), range(0, len(other.basis)))]
         ans = dview.map_sync(self.generate_gens, args)
 
         gens.extend(ans)
@@ -946,16 +936,10 @@ class PTypeDDStr(TypeDDStr):
         if self.pmc_1 != other.pmc:
             raise Exception("Can only compute Mor's between structures over the same algebra.")
         #Compile a basis for Mor
-        mor_basis = list()
-        args = []
-        
-        for i in CartesianProduct(range(0, len(self.basis)), range(0, len(other.basis)), range(0, len(self.pmc_1.alg_basis()))).list():
-            m, n, a = tuple(i)
-            args.append((self.basis[m], other.basis[n], self.pmc_1.alg_basis()[a]))
-    
+        ans = self.pmc_1.alg_basis()
+        args = [(self.basis[i[0]], other.basis[i[1]], self.pmc_1.alg_basis()[i[2]]) for i in CartesianProduct(range(0, len(self.basis)), range(0, len(other.basis)), range(0, len(ans)))]                    
         mor_basis = dview.map_sync(self.compute_basis, args)
 
-        ans = self.pmc_1.alg_basis()
         mult = []
         for i in range(2, self.pmc_1.punctures + 2):                
             ans = dview.map_sync(self.mult, ans)
@@ -963,11 +947,7 @@ class PTypeDDStr(TypeDDStr):
             ans = list(set(ans))
             mult.extend(ans)
 
-        args = []            
-        for i in CartesianProduct(range(0, len(self.basis)), range(0, len(other.basis)), range(0, len(mult))).list():
-            m, n, a = tuple(i)
-            args.append((self.basis[m], other.basis[n], mult[a]))
-
+        args = [(self.basis[i[0]], other.basis[i[1]], mult[i[2]]) for i in CartesianProduct(range(0, len(self.basis)), range(0, len(other.basis)), range(0, len(mult)))]            
         mor_basis.extend(dview.map_sync(self.compute_basis, args))
         
         mor_basis = list(set(mor_basis))
