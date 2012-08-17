@@ -996,17 +996,13 @@ class PTypeDDStr(TypeDDStr):
                           
         #Now view PMC as over opposite algebra:
         #First, reverse the idempotents.
-        rev_basis = list()
-        for f in mor_basis:
-            (m,a,n)=f.name
-            rev_idem = list()
-            for (i,j) in m.idem_2:
-                rev_idem.append((4*self.pmc_2.genus-1-j,4*self.pmc_2.genus-1-i))
-            rev_basis.append(DGen((m,a,n),pmc=self.pmc_2,idem=rev_idem))
-        rev_diffs = dict()
+        rev_basis = dview.map_sync(self.revids, mor_basis)
+
+        dview.push({ 'diffs' : diffs })
+        args = [(f, Reference('diffs')) for f in diffs.keys()]
         #Now, reverse the algebra element outputs.
-        for f in diffs.keys():
-            rev_diffs[f]=diffs[f].opposite()
+        rev_diffs = dview.map_sync(self.revalg, args)
+        rev_diffs = dict(rev_diffs)
     
         return PTypeDStr(self.pmc_2.opposite(), rev_basis, rev_diffs)        
 
@@ -1042,7 +1038,6 @@ class PTypeDDStr(TypeDDStr):
                         ans.append(DElt({DGen((l,b*a,n),pmc=self.pmc_2,idem=l.idem_2):dl[m][b]}))
         return (f, ans)
 
-
     def compute_basis(self, args):
         m, n, a = args
         if (Set(m.idem_1)==Set(a.left_idem)) and (Set(n.idem)==Set(a.right_idem)):
@@ -1062,3 +1057,13 @@ class PTypeDDStr(TypeDDStr):
                 ans.append(l)
         return ans
 
+    def revids(self, f):
+        (m,a,n)=f.name
+        rev_idem = list()
+        for (i,j) in m.idem_2:
+            rev_idem.append((4*self.pmc_2.genus-1-j,4*self.pmc_2.genus-1-i))
+        return DGen((m,a,n),pmc=self.pmc_2,idem=rev_idem)
+
+    def revalg(self, args):
+        f, diffs = args
+        return (f, diffs[f].opposite())
