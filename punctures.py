@@ -2,11 +2,11 @@ import sys
 sys.path.append('/home/seshu/dev/BordProgSage/')
 
 from bordered import *
-from IPython.parallel import Client
+from IPython.parallel import Client, Reference
 
 def setup_view():
     global c 
-    c = Client()
+    c = Client(profile='ssh')
     global dview 
     dview = c[:]
     dview.execute("import sys")
@@ -314,13 +314,12 @@ class Pdisk(PMC):
         for i in diffsl:
             x,y,z = i
             diffs.setdefault(x, []).extend([(y,z)])
-                                                                            
+
         for i in gens:
             if i not in diffs:
                 diffs[i] = []
-        
-        return PTypeDStr(self, gens, diffs)        
 
+        return PTypeDStr(self, gens, diffs)        
 
     def diffr(self, args):
         sa, gens = args
@@ -329,7 +328,6 @@ class Pdisk(PMC):
                 return (i, sa)
 
         return 0
-
 
     def diffl(self, args):
         sa, gens = args
@@ -456,8 +454,10 @@ class Pdisk(PMC):
                     a[j] = [frozenset(i)]
                 else:
                     a[j].append(frozenset(i))
-        return a
-        
+        #return a
+        dview.push({'idems' : a})
+        return Reference('idems')
+
     def opposite(self):
         "Returns the PMC obtained by orientation-reversing self."
         revmatch = list()
@@ -616,14 +616,11 @@ class PTypeDStr(TypeDStr):
 
         while gens.count(None) != 0:
             gens.remove(None)
-
-        diffs = dict()            
-        args = [(i, other, diffs) for i in gens]
-#            pool.map_async(self.diff, args, chunksize=1)
-        for i in args:
-            self.diff(i)
-
-        diffs = dict(diffs)
+        
+        dview.push({ 'other' : other})
+        args = [(i, Reference('other')) for i in gens]
+        ans = dview.map_sync(self.diff, args)
+        diffs = dict(ans)
 
         return ChainCx(diffs)
 
@@ -640,7 +637,7 @@ class PTypeDStr(TypeDStr):
         return ans                
 
     def diff(self, args):
-        f, other, diffs = args
+        f, other = args
         df = list()
         #d(f(x))
         #First differentiate y in (x,a,y)
@@ -657,7 +654,8 @@ class PTypeDStr(TypeDStr):
                  if w==f[0]:
                     if b*f[1]:
                         df.append((xp,b*f[1],f[2]))
-        diffs[f] = reduce_mod_2(df)
+#        diffs[f] = reduce_mod_2(df)
+        return (f, reduce_mod_2(df))
         
     def generate_gens(self, args):
         x,y,z = args
@@ -893,7 +891,6 @@ class POverslide(Overslide):
 
         self.gen_idems = xidems + yidems
             
-
     def dd_mod(self):
         "Return the type DD module for this arcslide."
         if self.ddstr != None:
@@ -972,39 +969,31 @@ class PTypeDDStr(TypeDDStr):
             args.append((self.basis[m], other.basis[n], mult[a]))
 
         mor_basis.extend(dview.map_sync(self.compute_basis, args))
+        
+        mor_basis = list(set(mor_basis))
+        mor_basis.remove(0)
 
-        while mor_basis.count(0) != 0:
-            mor_basis.remove(0)
+        diffs = [(f, DElt({},pmc=self.pmc_2)) for f in mor_basis]
+        diffs = dict(diffs)
 
-        diffs = dict()
         #delta^1 on Mor in three parts.
         #First: differentiating the algebra element
-        for f in mor_basis:
-            diffs[f]=DElt({},pmc=self.pmc_2)
-            (m,a,n)=f.name
-            for b in a.differential():
-                diffs[f]=diffs[f]+DElt({DGen((m,b,n),pmc=self.pmc_2,idem=m.idem_2):AlgElt([Strand_Diagram(self.pmc_2,[],m.idem_2)])})
 
-        #Second: differentiating the image (element of other)
-        #        print diffs   
-        for f in mor_basis:   
-            (m,a,n)=f.name
-            adn = AlgElt([a])*other.delta1(n)
-            for (b,p) in adn.basis_expansion():
-                diffs[f] = diffs[f]+DElt({DGen((m,b,p),pmc=self.pmc_2,idem=m.idem_2):AlgElt([Strand_Diagram(self.pmc_2,[],m.idem_2)])})
+        diffs1 = dview.map_sync(self.diff1, mor_basis)
+        self.reducediff(diffs1, diffs)
+
+        #Second: differentiating the image (element of other)        
+        
+        dview.push({'other' : other})
+        args = [(f, Reference('other')) for f in mor_basis]
+        diffs2 = dview.map_sync(self.diff2, args)
+        self.reducediff(diffs2, diffs)
 
         #Third: differentiating the source (element of self). This is the only part which outputs non-idempotent algebra elements.
-        #        print diffs
-        for f in mor_basis:
-            (m,a,n)=f.name
-            for l in self.basis:
-                dl=self.delta1(l)
-                if m in dl.keys():
-                    for b in dl[m].keys():
-                        if b*a:
-                            diffs[f] = diffs[f]+DElt({DGen((l,b*a,n),pmc=self.pmc_2,idem=l.idem_2):dl[m][b]})
-
-        #        print diffs
+                
+        diffs3 = dview.map_sync(self.diff3, mor_basis)
+        self.reducediff(diffs3, diffs)
+                          
         #Now view PMC as over opposite algebra:
         #First, reverse the idempotents.
         rev_basis = list()
@@ -1020,6 +1009,39 @@ class PTypeDDStr(TypeDDStr):
             rev_diffs[f]=diffs[f].opposite()
     
         return PTypeDStr(self.pmc_2.opposite(), rev_basis, rev_diffs)        
+
+    def reducediff(self, l, d):
+        for x,y in l:
+            if y:
+                d[x] = d[x]+reduce(DElt.__add__, y)
+            
+    def diff1(self, f):
+        (m,a,n)=f.name
+        ans = []
+        for b in a.differential():
+            ans.append(DElt({DGen((m,b,n),pmc=self.pmc_2,idem=m.idem_2):AlgElt([Strand_Diagram(self.pmc_2,[],m.idem_2)])}))
+        return (f, ans)
+
+    def diff2(self, args):
+        f, other = args
+        (m,a,n)=f.name
+        adn = AlgElt([a])*other.delta1(n)
+        ans = []
+        for (b,p) in adn.basis_expansion():
+            ans.append(DElt({DGen((m,b,p),pmc=self.pmc_2,idem=m.idem_2):AlgElt([Strand_Diagram(self.pmc_2,[],m.idem_2)])}))
+        return (f, ans)
+
+    def diff3(self, f):
+        (m,a,n)=f.name
+        ans = []
+        for l in self.basis:
+            dl=self.delta1(l)
+            if m in dl.keys():
+                for b in dl[m].keys():
+                    if b*a:
+                        ans.append(DElt({DGen((l,b*a,n),pmc=self.pmc_2,idem=l.idem_2):dl[m][b]}))
+        return (f, ans)
+
 
     def compute_basis(self, args):
         m, n, a = args
