@@ -4,6 +4,14 @@ sys.path.append(os.path.expanduser("~/dev/BordProgSage/"))
 
 from bordered import *
 from IPython.parallel import Client, Reference
+from ZODB import FileStorage, DB
+from persistent import Persistent
+from persistent.list import PersistentList
+from persistent.mapping import PersistentMapping
+from BTrees.OOBTree import OOBTree
+from BTrees.IOBTree import IOBTree
+import logging
+import transaction
 
 def setup_view():
     global c 
@@ -14,16 +22,24 @@ def setup_view():
     dview.execute("import os")
     dview.execute("sys.path.append(os.path.expanduser('~/dev/punctures'))")
     dview.execute("from punctures import *")
+    logging.basicConfig()
+    storage = FileStorage.FileStorage('test-filestorage.fs')
+    db = DB(storage)
+    conn = db.open()
+    global dbroot
+    dbroot = conn.root()
 
 class Pdisk(PMC):
     
-    def __init__(self, punctures, matching=[], intervals=[], arcslid=false, slidto=0):
+    def __init__(self, punctures, matching=[], intervals=[], arcslid=false, slidto=0, i=0, j=0):
         self.punctures = punctures
         self.pts = 4*punctures-1
         self.intervals = []        
         self.arcslid = arcslid
         self.slidto = slidto
-        
+        self.i = i
+        self.j = j
+
         if matching == []:
             PMC.__init__(self, punctures, self.compute_matching(punctures))
             x = 0
@@ -41,7 +57,12 @@ class Pdisk(PMC):
             self.intervals = intervals
         
         self.label = label(self)
-                                                                                           
+        
+        if not dbroot.has_key('pdisk'):
+            dbroot['pdisk'] = OOBTree()
+
+        self.pdiskdb = dbroot['pdisk']
+
     def compute_matching(self, punctures):
         matching = []
         i = 0
@@ -238,9 +259,24 @@ class Pdisk(PMC):
         ans = dview.map_sync(self.pstrand_diagram, args)
 
         basis.extend(ans)
-
-        self.basis[spinc]= list(set(basis))
+        dview.clear()
+        self.basis[spinc] = list(set(basis))
         self.basis_computed[spinc] = True
+
+        self.pdiskdb[(self.punctures, spinc, self.i, self.j)] = PersistentList(basis)
+        transaction.commit()
+
+    def alg_basis(self, spinc=0):
+        # first check if the basis was computed or not.
+        if self.basis_computed[spinc] == False:
+            # if not check the db
+            if (self.punctures, spinc, self.i, self.j) not in self.pdiskdb.keys():
+                self.compute_basis()
+            else:
+                self.basis[spinc] = self.pdiskdb[(self.punctures, spinc, self.i, self.j)]
+                self.basis_computed = True
+
+        return list(self.basis[spinc])
 
     def pstrand_diagram(self, args):
         strands, id = args
@@ -252,7 +288,18 @@ class Pdisk(PMC):
             
     def zero_type_D(self):
         "Returns the standard type D structure for an zero-framed handlebody of genus k."
-                
+        
+        if not dbroot.has_key('bottomclosure'):
+            dbroot['bottomclosure'] = IOBTree()
+            
+        bottomclosure = dbroot['bottomclosure']
+        
+        if self.punctures in bottomclosure.keys():
+            gens, diffs = bottomclosure[self.punctures]
+            gens = list(gens)
+            diffs = dict(diffs)
+            return PTypeDStr(self, gens, diffs)
+
         s = []
         gens = []
                      
@@ -320,7 +367,11 @@ class Pdisk(PMC):
             if i not in diffs:
                 diffs[i] = []
 
-        return PTypeDStr(self, gens, diffs)        
+        dview.clear()                
+                
+        bottomclosure[self.punctures] = (PersistentList(gens), PersistentMapping(diffs))
+        transaction.commit()
+        return PTypeDStr(self, gens, diffs)
 
     def diffr(self, args):
         sa, gens = args
@@ -335,8 +386,7 @@ class Pdisk(PMC):
         x, y = sa
         for i in gens:
             if y.right_idem==i.idem:
-               return (x, y, i)                                                                                                                            
-    
+               return (x, y, i)                                                                                                                                
     def build_idem(self, gen):
         "Given a generator for BSD(Bn) return the corresponding idempotent"
         idem = []
@@ -421,7 +471,7 @@ class Pdisk(PMC):
                elif self.is_overslide(i,j) and (r == v):
                    ints[r] = ([x+1 for x in s[:s.index(j)+1]] + s[s.index(j)+1:])
 
-        return Pdisk(self.punctures, pmc.matching, ints, arcslid=true, slidto=w)        
+        return Pdisk(self.punctures, pmc.matching, ints, arcslid=true, slidto=w, i=i, j=j)
         
     def chords(self, spinc=0):
         "Return sum_(xi a chord)a(xi), in specified strands grading. Defaults to middle strands grading."
@@ -570,7 +620,7 @@ def alg_element(args):
                                         
     return AlgElt(answer, pmc) #Used to just return answer.
     
-class PTypeDStr(TypeDStr):
+class PTypeDStr(TypeDStr, Persistent):
     
     def mor_to_d(self, other):
         """Returns the chain complex of homomorphisms from self to other, where other is a type D structure.
@@ -611,6 +661,8 @@ class PTypeDStr(TypeDStr):
         args = [(i, Reference('other')) for i in gens]
         ans = dview.map_sync(self.diff, args)
         diffs = dict(ans)
+
+        dview.clear()                
 
         return ChainCx(diffs)
 
@@ -752,8 +804,8 @@ class PUnderslide(Underslide):
                 yidems.remove(i)
 
         self.gen_idems = xidems + yidems
-            
-        
+
+                    
     def dd_mod(self):
         "Return the type DD module for this arcslide."
         if self.ddstr != None:
@@ -776,7 +828,127 @@ class PUnderslide(Underslide):
             diffs[x] = dx
         self.ddstr = PTypeDDStr(self.pmc_1, self.pmc_2rev, self.generators, diffs)
         return self.ddstr
+
+    # fixed
+    def generate_U1(self):
+        "Generates a list of chords of type U1. Stored in self.u1chords, in the form (xi, xi'), where xi is a list of chords (containing exactly one chord), and similarly xi'."
+        answer = list()
+        for x in range(4*self.pmc_1.genus):
+            for y in range(x+1, 4*self.pmc_1.genus):
+                if (x != self.b1) and (y!= self.b1) and (not (x,y) in self.pmc_1.matching) and (not (y,x) in self.pmc_1.matching) and self.pmc_1.check_interval(x, y):
+                    answer.append(([(x,y)],[(self.r(x),self.r(y))]))         
+        self.u1chords = answer
+    
+    # not fixed, possibly not broken
+    def generate_U2(self):
+        "Generates a list of chords of type U2. Stored in self.u2chords"
+        answer = list()
+        if self.b1 < self.c1:
+            answer.append(([(self.b1,self.c1)],[]))
+        if self.b1 > self.c1:
+            answer.append(([(self.c1,self.b1)],[]))
+        if self.b1p < self.c2p:
+            answer.append(([],[(self.b1p,self.c2p)]))
+        if self.b1p > self.c2p:
+            answer.append(([],[(self.c2p,self.b1p)]))
+        self.u2chords = answer
+
+    # not fixed, possibly not broken
+    def generate_U3(self):
+        "Generates a list of chords of type U3. Stored in self.u3chords"
+        answer = list()
+        #Extra sigma
+        if self.b1 < self.c1:
+            for x in range(self.c1+1,4*self.genus):
+                answer.append(([(self.b1,x)],[(self.c1p,self.r(x))]))
+        if self.b1 > self.c1:
+            for x in range(self.c1):
+                answer.append(([(x,self.b1)],[(self.r(x),self.c1p)]))
+        #Extra sigma'
+        if self.b1p < self.c2p:
+            for x in range(self.c2p+1,4*self.genus):
+                answer.append(([(self.c2,self.rinv(x))],[(self.b1p,x)]))
+        if self.b1p > self.c2p:
+            for x in range(self.c2p):
+                answer.append(([(self.rinv(x),self.c2)],[(x,self.b1p)]))
+        self.u3chords = answer
         
+    # not fixed        
+    def generate_U4(self):
+        "Generates a list of chords of type U4. Stored in self.u4chords, in the form (xi, xi'), where xi is a list of chords, and similarly xi'."
+        answer = list()
+        #Two connected chords
+        #Missing sigma:
+        if self.b1 < self.c1:
+            for x in range(self.b1):
+                answer.append(([(x,self.b1)],[(self.r(x),self.c1p)]))
+        if self.b1 > self.c1:
+            for x in range(self.b1+1, 4*self.genus):
+                answer.append(([(self.b1,x)],[(self.c1p,self.r(x))]))
+        #Missing sigma':
+        if self.b1p < self.c2p:
+            for x in range(self.b1p):
+                answer.append(([(self.rinv(x),self.c2)],[(x,self.b1p)]))
+        if self.b1p > self.c2p:
+            for x in range(self.b1p+1, 4*self.genus):
+                answer.append(([(self.c2, self.rinv(x))],[(self.b1p,x)]))
+        #Three connected chords total, two on left.
+        if self.b1 < self.c1:
+            for x in range(self.b1):
+                for y in range(self.c1+1,4*self.genus):
+                    answer.append(([(x,self.b1),(self.c1,y)],[(self.r(x),self.r(y))]))
+        if self.b1 > self.c1:
+            for x in range(self.c1):
+                for y in range(self.b1+1, 4*self.genus):
+                    answer.append(([(x,self.c1),(self.b1,y)],[(self.r(x),self.r(y))]))
+        #Three connected chords total, two on right.
+        if self.b1p < self.c2p:
+            for x in range(self.b1p):
+                for y in range(self.c2p+1, 4*self.genus):
+                    answer.append(([(self.rinv(x),self.rinv(y))],[(x,self.b1p),(self.c2p,y)]))
+        if self.b1p > self.c2p:
+            for x in range(self.c2p):
+                for y in range(self.b1p+1, 4*self.genus):
+                    answer.append(([(self.rinv(x),self.rinv(y))],[(x,self.c2p),(self.b1p,y)]))
+        self.u4chords = answer
+
+    # not fixed
+    def generate_U5(self):
+        "Generates a list of chords of type U5. Stored in self.u5chords"
+        answer = list()
+        smaller = min(self.c1, self.c2)
+        bigger = max(self.c1,self.c2)
+        rbigger = self.r(bigger)
+        rsmaller = self.r(smaller)
+        for x in range(smaller):
+            for y in range(bigger+1, 4*self.genus): #Used to be range(bigger,4*self.genus). Bohua caught the bug.
+                answer.append(([(x,smaller),(bigger,y)],[(self.r(x),rsmaller),(rbigger,self.r(y))]))
+        self.u5chords = answer
+
+    # not fixed
+    def generate_U6(self):
+        "Generates a list of chords of type U6. Stored in self.u6chords"
+        answer = list()
+        #Extra sigma:
+        if self.b1 < self.c1:
+            for x in range(self.c2+1, 4*self.genus):
+                if (x != self.b1) and (x != self.c1):
+                    answer.append(([(self.c2,x), (self.b1,self.c1)],[(self.b1p, self.r(x))]))
+        if self.b1 > self.c1:
+            for x in range(self.c2):
+                if (x != self.b1) and (x != self.c1):
+                    answer.append(([(x, self.c2), (self.c1,self.b1)],[(self.r(x),self.b1p)]))
+        #Extra sigma':
+        if self.b1p < self.c2p:
+            for x in range(self.c1p+1, 4*self.genus):
+                if (x != self.b1p) and (x != self.c2p):
+                    answer.append(([(self.b1, self.rinv(x))],[(self.c1p,x),(self.b1p,self.c2p)]))
+        if self.b1p > self.c2p:
+            for x in range(self.c1p):
+                if (x != self.b1p) and (x != self.c2p):
+                    answer.append(([(self.rinv(x),self.b1)],[(x,self.c1p),(self.c2p,self.b1p)]))
+        self.u6chords = answer
+    
 class POverslide(Overslide):
     
     def complementary_idem(self, idem):
@@ -906,6 +1078,212 @@ class POverslide(Overslide):
             diffs[x] = dx
         self.ddstr = PTypeDDStr(self.pmc_1, self.pmc_2rev, self.generators, diffs)
         return self.ddstr            
+
+    # not fixed
+    def generate_O1(self):
+        "Generates a list of chords of type O1. Stored in self.o1DetChords (since they're all determinate), in the form (xi, xi'), where xi is a list of chords (containing exactly one chord), and similarly xi'."
+        answer = list()
+        for x in range(4*self.pmc_1.genus):
+            for y in range(x+1, 4*self.pmc_1.genus):
+                if (x != self.b1) and (y!= self.b1) and (not (x,y) in self.pmc_1.matching) and (not (y,x) in self.pmc_1.matching):
+                    answer.append(([(x,y)],[(self.r(x),self.r(y))]))
+        self.o1DetChords = answer
+
+    # not fixed
+    def generate_O2(self):
+        "Generates a list of chords of type O2. Stored in self.O2DetChords"
+        answer = list()
+        if self.b1 < self.c1:
+            answer.append(([(self.b1,self.c1)],[]))
+        if self.b1 > self.c1:
+            answer.append(([(self.c1,self.b1)],[]))
+        if self.b1p < self.c2p:
+            answer.append(([],[(self.b1p,self.c2p)]))
+        if self.b1p > self.c2p:
+            answer.append(([],[(self.c2p,self.b1p)]))
+        self.o2DetChords = answer
+
+    # not fixed
+    def generate_O3(self):
+        "Generates a list of chords of type O3. Stored in self.o3DetChords and self.o3IndetChords, depending on whether the chord is determinate or not."
+        #The determinate ones:
+        answer = list()
+        #Extra sigma
+        if self.b1 < self.c1:
+            for x in range(self.c1+1,4*self.genus):
+                if x != self.c2:
+                    answer.append(([(self.b1,x)],[(self.c1p,self.r(x))]))
+        if self.b1 > self.c1:
+            for x in range(self.c1):
+                if x!= self.c2:
+                    answer.append(([(x,self.b1)],[(self.r(x),self.c1p)]))
+        #Extra sigma'
+        if self.b1p < self.c2p:
+            for x in range(self.c2p+1,4*self.genus):
+                if x!= self.c1p:
+                    answer.append(([(self.c2,self.rinv(x))],[(self.b1p,x)]))
+        if self.b1p > self.c2p:
+            for x in range(self.c2p):
+                if x!= self.c1p:
+                    answer.append(([(self.rinv(x),self.c2)],[(x,self.b1p)]))
+        self.o3DetChords = answer
+        #Now, the indeterminate ones
+        indet = list()
+        if self.b1<self.c1:
+            indet.append(([(self.b1, self.c2)],[(self.c1p, self.c2p)]))
+            indet.append(([(self.c1, self.c2)],[(self.c1p, self.b1p)]))
+        if self.b1>self.c1:
+            indet.append(([(self.c2, self.b1)],[(self.c2p, self.c1p)]))
+            indet.append(([(self.c2, self.c1)],[(self.b1p, self.c1p)]))
+        self.o3IndetChords = indet
+
+    # not fixed
+    def generate_O4(self):
+        "Generates a list of chords of type U4. Stored in self.o4DetChords and self.o4IndetChords, in the form (xi, xi'), where xi is a list of chords, and similarly xi'."
+        detanswer = list()
+        indetanswer = list()
+        #Two connected chords
+        #Missing sigma:
+        if self.b1 < self.c1:
+            for x in range(self.b1):
+                detanswer.append(([(x,self.b1)],[(self.r(x),self.c1p)]))
+        if self.b1 > self.c1:
+            for x in range(self.b1+1, 4*self.genus):
+                detanswer.append(([(self.b1,x)],[(self.c1p,self.r(x))]))
+        #Missing sigma':
+        if self.b1p < self.c2p:
+            for x in range(self.b1p):
+                detanswer.append(([(self.rinv(x),self.c2)],[(x,self.b1p)]))
+        if self.b1p > self.c2p:
+            for x in range(self.b1p+1, 4*self.genus):
+                detanswer.append(([(self.c2, self.rinv(x))],[(self.b1p,x)]))
+        #Three connected chords total, two on left.
+        if self.b1 < self.c1:
+            for x in range(self.b1):
+                for y in range(self.c1+1,4*self.genus):
+                    #Is this indeterminate?
+                    if y==self.c2:
+                        indetanswer.append(([(x,self.b1),(self.c1,y)],[(self.r(x),self.r(y))]))
+                    else:
+                        detanswer.append(([(x,self.b1),(self.c1,y)],[(self.r(x),self.r(y))]))                        
+        if self.b1 > self.c1:
+            for x in range(self.c1):
+                for y in range(self.b1+1, 4*self.genus):
+                    #Is this indeterminate?
+                    if x==self.c2:
+                        indetanswer.append(([(x,self.c1),(self.b1,y)],[(self.r(x),self.r(y))]))                        
+                    else:
+                        detanswer.append(([(x,self.c1),(self.b1,y)],[(self.r(x),self.r(y))]))
+        #Three connected chords total, two on right.
+        if self.b1p < self.c2p:
+            for x in range(self.b1p):
+                for y in range(self.c2p+1, 4*self.genus):
+                    #Is this indeterminate?
+                    if y==self.c1p:
+                        indetanswer.append(([(self.rinv(x),self.rinv(y))],[(x,self.b1p),(self.c2p,y)]))
+                    else:
+                        detanswer.append(([(self.rinv(x),self.rinv(y))],[(x,self.b1p),(self.c2p,y)]))
+        if self.b1p > self.c2p:
+            for x in range(self.c2p):
+                for y in range(self.b1p+1, 4*self.genus):
+                    #Is this indeterminate?
+                    if x==self.c1p:
+                        indetanswer.append(([(self.rinv(x),self.rinv(y))],[(x,self.c2p),(self.b1p,y)]))
+                    else:
+                        detanswer.append(([(self.rinv(x),self.rinv(y))],[(x,self.c2p),(self.b1p,y)]))
+        self.o4DetChords = detanswer
+        self.o4IndetChords = indetanswer
+
+    # not fixed        
+    def generate_O5(self):
+        "Generates a list of chords of type O5. Stored in self.o5DetChords"
+        answer = list()
+        smaller = min(self.c1, self.c2)
+        bigger = max(self.c1,self.c2)
+        rbigger = self.r(bigger)
+        rsmaller = self.r(smaller)
+        #Chords can be disjoint:
+        for x in range(smaller+1,bigger):
+            for y in range(x+1,bigger):
+                answer.append(([(smaller,x),(y,bigger)],[(rsmaller,self.r(x)),(self.r(y),rbigger)]))
+        #Or one can be contained in the other:
+        for x in range(bigger,4*self.genus):
+            for y in range(smaller+1,bigger):
+                if (x != self.b1) and (x != self.b2):
+                    answer.append(([(smaller,x),(y,bigger)],[(rsmaller,self.r(x)),(self.r(y),rbigger)]))
+        for x in range(smaller+1,bigger):
+            for y in range(smaller):
+                if (y != self.b1) and (y != self.b2):
+                    answer.append(([(smaller,x),(y,bigger)],[(rsmaller,self.r(x)),(self.r(y),rbigger)]))
+        self.o5DetChords = answer
+
+    # not fixed
+    def generate_O6(self):
+        "Generates a list of chords of type O6. Stored in self.o6DetChords"
+        answer = list()
+        #Extra sigma:
+        if self.b1 > self.c1:
+            for x in range(self.c2):
+                answer.append(([(x, self.c2),(self.c1,self.b1)],[(self.r(x),self.b1p)]))
+        if self.b1 < self.c1:
+            for x in range(self.c2+1,4*self.genus):
+                answer.append(([(self.b1,self.c1),(self.c2,x)],[(self.b1p,self.r(x))]))
+
+        #Extra sigma'
+        if self.b1 > self.c1:
+            for x in range(self.b1+1,4*self.genus):
+                answer.append(([(self.b1, x)],[(self.c1p,self.r(x)),(self.b1p,self.c2p)]))
+        if self.b1 < self.c1:
+            for x in range(self.b1):
+                answer.append(([(x,self.b1)],[(self.r(x),self.c1p),(self.c2p,self.b1p)]))
+        self.o6DetChords = answer
+
+    # not fixed
+    def generate_O7(self):
+        "Generates a list of chords of type O7. Stored in self.o7IndetChords"   
+        answer = list()
+        #Break on left.
+        if self.c1<self.c2:
+            for x in range(self.c1+1,self.c2):
+                answer.append(([(self.c1,x),(x,self.c2)],[(self.c1p,self.c2p)]))
+        if self.c2<self.c1:
+            for x in range(self.c2+1,self.c1):
+                answer.append(([(self.c2,x),(x,self.c1)],[(self.c2p,self.c1p)]))
+        #Break on right.
+        if self.c1p<self.c2p:
+            for x in range(self.c1p+1,self.c2p):
+                answer.append(([(self.c1,self.c2)],[(self.c1p,x),(x,self.c2p)]))
+        if self.c2p<self.c1p:
+            for x in range(self.c2p+1,self.c1p):
+                answer.append(([(self.c2,self.c1)],[(self.c2p,x),(x,self.c1p)]))
+        self.o7IndetChords = answer      
+
+    # not fixed
+    def generate_O8(self):
+        "Generates a list of chords of type O7. Stored in self.o7IndetChords"   
+        answer = list()
+        #xi contained in [c1,c2]
+        smaller = min(self.c1, self.c2)
+        bigger = max(self.c1, self.c2)
+        rsmaller = min(self.c1p, self.c2p)
+        rbigger = max(self.c1p, self.c2p)
+        for x in range(smaller+1,bigger):
+            for y in range(x+1,bigger):
+                if (not (x,y) in self.pmc_1.matching) and (not (y,x) in self.pmc_1.matching):
+                    answer.append(([(x,y),(smaller,bigger)],[(self.r(x),self.r(y)),(rsmaller,rbigger)]))
+        #xi disjoint from [c1,c2]
+        #xi below than c1:
+        for x in range(smaller):
+            for y in range(x+1,smaller):
+                if (not (x,y) in self.pmc_1.matching) and (not (y,x) in self.pmc_1.matching) and (x!=self.b1) and (y!=self.b1):
+                    answer.append(([(x,y),(smaller,bigger)],[(self.r(x),self.r(y)),(rsmaller,rbigger)]))
+        #xi above c2:
+        for x in range(bigger+1, 4*self.genus):
+            for y in range(x+1, 4*self.genus):
+                if (not (x,y) in self.pmc_1.matching) and (not (y,x) in self.pmc_1.matching) and (x != self.b1) and (y !=self.b1):
+                    answer.append(([(x,y),(smaller,bigger)],[(self.r(x),self.r(y)),(rsmaller,rbigger)]))
+        #NOTE: for idempotent reasons, chords of this type with an endpoint on b1 or b2 wont count. But they have not been explicitly disallowed above.
+        self.o8IndetChords = answer        
             
 class PArcslide(Arcslide):
     
@@ -983,8 +1361,10 @@ class PTypeDDStr(TypeDDStr):
         #Now, reverse the algebra element outputs.
         rev_diffs = dview.map_sync(self.revalg, args)
         rev_diffs = dict(rev_diffs)
-    
-        return PTypeDStr(self.pmc_2.opposite(), rev_basis, rev_diffs)        
+
+        dview.clear()
+        
+        return PTypeDStr(self.pmc_2.opposite(), rev_basis, rev_diffs)
 
     def reducediff(self, l, d):
         for x,y in l:
