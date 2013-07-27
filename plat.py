@@ -1,8 +1,12 @@
 class Plat():
 
     def __init__ (self, minbraid):
-        self.strands = minbraid.s*2;
-        self.minbraid = minbraid;
+        self.strands = minbraid.s*2
+        self.minbraid = minbraid
+
+    def __init__ (self, strands, minbraid):
+        self.strands = strands*2
+        self.minbraid = minbraid
         
     @classmethod
     def plat(cls, minbraid):
@@ -15,9 +19,6 @@ class Plat():
         j = 2
         ans = []
         
-
         while i != j:
             ans.append(chr(i+97-2))
             i = i - 1
-                
-        
