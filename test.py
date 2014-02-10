@@ -4,7 +4,7 @@ sys.path.append('/home/seshu/dev/punctures')
 from punctures import *
 
 if __name__ == '__main__':
-    setup_view()
+#    setup_view()
     pdisk2 = Pdisk.split_matching(2)
     bc = pdisk2.zero_type_D()
     uslide = PUnderslide(pdisk2, 6, 7).dd_mod()

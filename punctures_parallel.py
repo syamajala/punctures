@@ -3,13 +3,37 @@ import os
 sys.path.append(os.path.expanduser("~/dev/BordProgSage/"))
 
 from bordered import *
+from IPython.parallel import Client, Reference
+from ZODB import FileStorage, DB
+from persistent import Persistent
+from persistent.list import PersistentList
+from persistent.mapping import PersistentMapping
+from BTrees.OOBTree import OOBTree
+from BTrees.IOBTree import IOBTree
+import logging
+import transaction
+
+
+def setup_view():
+    global c 
+    c = Client()
+    global dview 
+    dview = c[:]
+    dview.execute("import sys")
+    dview.execute("import os")
+    dview.execute("sys.path.append(os.path.expanduser('~/dev/punctures'))")
+    dview.execute("from punctures import *")
+    logging.basicConfig()
+    storage = FileStorage.FileStorage('test-filestorage.fs')
+    db = DB(storage)
+    conn = db.open()
+    global dbroot
+    dbroot = conn.root()
 
 
 class Pdisk(PMC):
 
-    def __init__(self, punctures, matching=[], intervals=[], arcslid=false,
-                 slidto=0, i=0, j=0):
-
+    def __init__(self, punctures, matching=[], intervals=[], arcslid=false, slidto=0, i=0, j=0):
         self.punctures = punctures
         self.pts = 4*punctures-1
         self.intervals = []
@@ -36,6 +60,11 @@ class Pdisk(PMC):
 
         self.label = label(self)
 
+        if not dbroot.has_key('pdisk'):
+            dbroot['pdisk'] = OOBTree()
+
+        self.pdiskdb = dbroot['pdisk']
+
     def compute_matching(self, punctures):
         matching = []
         i = 0
@@ -47,12 +76,8 @@ class Pdisk(PMC):
         return matching
 
     def idempotents(self, spinc=0):
-        """
-        Returns a list of the idempotents for this pointed matched circle
-        with g+i strands. Idempotents are given as lists of elements of 
-        matching.
-        """
-
+        """Returns a list of the idempotents for this pointed matched circle with g+i strands.
+        Idempotents are given as lists of elements of matching."""
         idems = []
         for i in range(1, (self.genus*2)+1+spinc):
             idems.extend(Combinations(self.matching, i).list())
@@ -102,8 +127,7 @@ class Pdisk(PMC):
         return (strands[0], ans)
 
     def compute_basis(self, spinc=0):
-        # i don't know if this is the most efficient way to do this, but it
-        # works...
+        # i don't know if this is the most efficient way to do this, but it works...        
         stra = []
         strands = []
         basis = []
@@ -116,10 +140,9 @@ class Pdisk(PMC):
 
         if self.arcslid:
 
-            # much of this code is the same as below, we just have 2 special
-            # intervals to deal with. the top and the interval slid to, if the
-            # top == slidto there is only one special interval to deal with
-            # and the code works the same as the non special case
+            # much of this code is the same as below, we just have 2 special intervals
+            # to deal with. the top and the interval slid to, if the top == slidto there
+            # is only one special interval to deal with and the code works the same as the non special case
 
             tstr = []
             toint = self.intervals[self.slidto]
@@ -138,7 +161,7 @@ class Pdisk(PMC):
             for i in top:
                 x, y = i
                 if (y-x) == 1:
-                    stra.append(i)
+                    stra.append(i)  
 
             for i in tstr:
                 x, y = i
@@ -213,22 +236,20 @@ class Pdisk(PMC):
                 strands.append(i)
 
         mlen = [i for i in mlen if len(i) == 1]
+
         ids = self.idem_dict(spinc)
 
         args = [(self, i, ids, spinc) for i in strands]
-        ans = map(alg_element, args)
-#        ans = dview.map_sync(alg_element, args)
+        ans = dview.map_sync(alg_element, args)
 
         for i in ans:
             basis.extend(i)
 
-        mlen_ids = map(self.compute_mlen_idem, mlen)
-#        mlen_ids = dview.map_sync(self.compute_mlen_idem, mlen)
+        mlen_ids = dview.map_sync(self.compute_mlen_idem, mlen)
         mlen_ids = dict(mlen_ids)
 
         args = [(self, i, ids, spinc) for i in mlen]
-        ans = map(alg_element, args)
-#        ans = dview.map_sync(alg_element, args)
+        ans = dview.map_sync(alg_element, args)
 
         for i in ans:
             for j in i:
@@ -236,21 +257,27 @@ class Pdisk(PMC):
                     basis.append(j)
 
         args = [([], i) for i in self.idempotents()]
-        ans = map(self.pstrand_diagram, args)
-#        ans = dview.map_sync(self.pstrand_diagram, args)
+        ans = dview.map_sync(self.pstrand_diagram, args)
 
         basis.extend(ans)
-#        dview.clear()
+        dview.clear()
         self.basis[spinc] = list(set(basis))
         self.basis_computed[spinc] = True
 
+        self.pdiskdb[(self.punctures, spinc, self.i, self.j)] = PersistentList(basis)
+        transaction.commit()
+
     def alg_basis(self, spinc=0):
         # first check if the basis was computed or not.
-        if not self.basis_computed[spinc]:
-            self.compute_basis()
+        if self.basis_computed[spinc] == False:
+            # if not check the db
+            if (self.punctures, spinc, self.i, self.j) not in self.pdiskdb.keys():
+                self.compute_basis()
+            else:
+                self.basis[spinc] = self.pdiskdb[(self.punctures, spinc, self.i, self.j)]
+                self.basis_computed = True
 
-        return self.basis[spinc]
-#        return self.compute_basis()
+        return list(self.basis[spinc])
 
     def pstrand_diagram(self, args):
         strands, id = args
@@ -263,16 +290,16 @@ class Pdisk(PMC):
     def zero_type_D(self):
         "Returns the standard type D structure for an zero-framed handlebody of genus k."
 
-        # if not dbroot.has_key('bottomclosure'):
-        #     dbroot['bottomclosure'] = IOBTree()
+        if not dbroot.has_key('bottomclosure'):
+            dbroot['bottomclosure'] = IOBTree()
 
-        # bottomclosure = dbroot['bottomclosure']
+        bottomclosure = dbroot['bottomclosure']
 
-        # if self.punctures in bottomclosure.keys():
-        # gens, diffs = bottomclosure[self.punctures]
-        # gens = list(gens)
-        # diffs = dict(diffs)
-        # return PTypeDStr(self, gens, diffs)
+        if self.punctures in bottomclosure.keys():
+            gens, diffs = bottomclosure[self.punctures]
+            gens = list(gens)
+            diffs = dict(diffs)
+            return PTypeDStr(self, gens, diffs)
 
         s = []
         gens = []
@@ -313,20 +340,19 @@ class Pdisk(PMC):
         ids = self.idem_dict()
 
         a = [(self, i, ids, 0) for i in a]
-        ans = map(alg_element, a)
-#        ans = dview.map_sync(alg_element, a)
+
+        ans = dview.map_sync(alg_element, a)
 
         for i in ans:
             sa.extend(i)
 
         dgens = list(gens)
         args = [(i, dgens) for i in sa]
-        diffsr = map(self.diffr, args)
-#        diffsr = dview.map_sync(self.diffr, args)
+
+        diffsr = dview.map_sync(self.diffr, args)
 
         args = [(i, dgens) for i in diffsr if i != 0]
-        diffsl = map(self.diffl, args)
-#        diffsl = dview.map_sync(self.diffl, args)
+        diffsl = dview.map_sync(self.diffl, args)
 
         # build a dict with keys generators, and values lists of pairs (a, x)
         # there is probably a better way to do this, because this is where most of the 
@@ -342,6 +368,10 @@ class Pdisk(PMC):
             if i not in diffs:
                 diffs[i] = []
 
+        dview.clear()
+
+        bottomclosure[self.punctures] = (PersistentList(gens), PersistentMapping(diffs))
+        transaction.commit()
         return PTypeDStr(self, gens, diffs)
 
     def diffr(self, args):
@@ -458,8 +488,7 @@ class Pdisk(PMC):
                 if (x != y) and (x < y):
                     arc_list.append((self, [tuple(j)], ids, spinc))
 
-        ans = map(alg_element, arc_list)
-#        ans = dview.map_sync(alg_element, arc_list)
+        ans = dview.map_sync(alg_element, arc_list)
 
         for i in ans:
             answer.extend(i)
@@ -478,9 +507,9 @@ class Pdisk(PMC):
                     a[j] = [frozenset(i)]
                 else:
                     a[j].append(frozenset(i))
-        return a
-        # dview.push({'idems' : a})
-        # return Reference('idems')
+        #return a
+        dview.push({'idems' : a})
+        return Reference('idems')
 
     def opposite(self):
         "Returns the PMC obtained by orientation-reversing self."
@@ -596,13 +625,11 @@ def alg_element(args):
     return AlgElt(answer, pmc) #Used to just return answer.
 
 
-class PTypeDStr(TypeDStr):
+class PTypeDStr(TypeDStr, Persistent):
 
     def mor_to_d(self, other):
-        """
-        Returns the chain complex of homomorphisms from self to other,
-        where other is a type D structure.
-
+        """Returns the chain complex of homomorphisms from self to other, where other is a type D structure.
+        
         Examples:
         sage: infty_type_D(1).mor_to_d(infty_type_D(1))
         Digraph on 2 vertices
@@ -612,45 +639,35 @@ class PTypeDStr(TypeDStr):
         1
         """
         if self.pmc != other.pmc:
-            raise Exception("Can only compute Mor's between type D structures \
-            over the same algebra.")
+            raise Exception("Can only compute Mor's between type D structures over the same algebra.")
 
         alg_gens = self.pmc.alg_basis()
 
-        args = [(self.basis[i[0]], alg_gens[i[1]], other.basis[i[2]])
-                for i in CartesianProduct(range(0, len(self.basis)),
-                                          range(0, len(alg_gens)),
-                                          range(0, len(other.basis)))]
-        gens = map(self.generate_gens, args)
-#        gens = dview.map_sync(self.generate_gens, args)
+        args = [(self.basis[i[0]],alg_gens[i[1]],other.basis[i[2]]) for i in CartesianProduct(range(0, len(self.basis)), range(0, len(alg_gens)), range(0, len(other.basis)))]
+        gens = dview.map_sync(self.generate_gens, args)
 
         ans = alg_gens
         mult = []
         for i in range(2, self.pmc.punctures + 2):
-#            ans = dview.map_sync(self.mult, ans)
-            ans = map(self.mult, ans)
+            ans = dview.map_sync(self.mult, ans)
             ans = reduce(list.__add__, ans, [])
             ans = list(set(ans))
             mult.extend(ans)
 
-        args = [(self.basis[i[0]], mult[i[1]], other.basis[i[2]])
-                for i in CartesianProduct(range(0, len(self.basis)),
-                                          range(0, len(mult)),
-                                          range(0, len(other.basis)))]
-        ans = map(self.generate_gens, args)
-#        ans = dview.map_sync(self.generate_gens, args)
+        args = [(self.basis[i[0]], mult[i[1]], other.basis[i[2]]) for i in CartesianProduct(range(0, len(self.basis)), range(0, len(mult)), range(0, len(other.basis)))]
+        ans = dview.map_sync(self.generate_gens, args)
 
         gens.extend(ans)
 
         while gens.count(None) != 0:
             gens.remove(None)
 
-#        dview.push({ 'other' : other})
-#        args = [(i, Reference('other')) for i in gens]
-        args = [(i, other) for i in gens]
-        ans = map(self.diff, args)
-#        ans = dview.map_sync(self.diff, args)
+        dview.push({ 'other' : other})
+        args = [(i, Reference('other')) for i in gens]
+        ans = dview.map_sync(self.diff, args)
         diffs = dict(ans)
+
+        dview.clear()
 
         return ChainCx(diffs)
 
@@ -740,17 +757,15 @@ class PUnderslide(Underslide):
             return (a, b)
 
     def generate_gen_idems(self):
-        """
-        Generates a list of pairs of idempotents for generators for the DD
-        module. Stored in self.gen_idems Currently restricts to the middle
-        SpinC
-        """
+        """Generates a list of pairs of idempotents for generators for the DD 
+        module. Stored in self.gen_idems Currently restricts to the middle 
+        SpinC"""
 
         #Generators of type X (complementary)
         xidems = [([()], self.pmc_2.idempotents()[-1])]
         pmc1idems = [i[0] for i in self.pmc_1.idempotents() if len(i) == 1]
 
-        #
+        # 
         # what we do is we build a dictionary of complementary idempotents for 
         # idempotents consisting of 1 term
         # then we walk through the list of the rest of the idempotents and for 
@@ -759,8 +774,7 @@ class PUnderslide(Underslide):
         # then take the intersection of everything
         #
 
-        ids = map(self.complementary_idem, pmc1idems)
-#        ids = dview.map_sync(self.complementary_idem, pmc1idems)
+        ids = dview.map_sync(self.complementary_idem, pmc1idems)
 
         for i in ids:
             x, y = i
@@ -771,16 +785,13 @@ class PUnderslide(Underslide):
         pmc1idems = [i for i in self.pmc_1.idempotents() if len(i) != 1]
         args = [(i, ids) for i in pmc1idems]
 
-        xidems.extend(map(self.build_comp_idem, args))
-#        xidems.extend(dview.map_sync(self.build_comp_idem, args))
+        xidems.extend(dview.map_sync(self.build_comp_idem, args))
 
         #Generators of type Y (sub-complementary)
 
         if self.b1 > self.b2:
             mstrand = (self.b2, self.b1)
-        elif self.b1 < self.b2:
-            # i don't think this can happen for an underslide, but better safe
-            # than sorry.
+        elif self.b1 < self.b2: # i don't think this can happen for an underslide, but better safe than sorry.
             mstrand = (self.b1, self.b2)
         if self.b1p > self.b2p:
             mstrandp = (self.b2p, self.b1p)
@@ -791,9 +802,9 @@ class PUnderslide(Underslide):
         elif self.c2 > self.c1:
             mstrando = (self.c1, self.c2)    
 
-        args = [(i, mstrand, mstrandp, mstrando) for i in xidems]
-        yidems = map(self.almost_complementary_idem, args)
-#        yidems = dview.map_sync(self.almost_complementary_idem, args)
+        args = [(i, mstrand, mstrandp, mstrando) for i in xidems]      
+
+        yidems = dview.map_sync(self.almost_complementary_idem, args)
 
         while yidems.count(None) != 0:
             yidems.remove(None)
@@ -1012,8 +1023,8 @@ class POverslide(Overslide):
         # we look up what the complementary idempotent was in the dict, and 
         # then take the intersection of everything
         #
-        ids = map(self.complementary_idem, pmc1idems)
-#        ids = dview.map_sync(self.complementary_idem, pmc1idems)
+
+        ids = dview.map_sync(self.complementary_idem, pmc1idems)
 
         for i in ids:
             x, y = i
@@ -1023,17 +1034,15 @@ class POverslide(Overslide):
 
         pmc1idems = [i for i in self.pmc_1.idempotents() if len(i) != 1]
         args = [(i, ids) for i in pmc1idems]
-        xidems.extend(map(self.build_comp_idem, args))
-#        xidems.extend(dview.map_sync(self.build_comp_idem, args))
+
+        xidems.extend(dview.map_sync(self.build_comp_idem, args))
 
         #Generators of type Y (sub-complementary)
         # copied from PUnderslide.generate_gen_idems()
 
         if self.b1 > self.b2:
             mstrand = (self.b2, self.b1)
-        elif self.b1 < self.b2:
-            # i don't think this can happen for an underslide, but better safe
-            # than sorry.
+        elif self.b1 < self.b2: # i don't think this can happen for an underslide, but better safe than sorry.
             mstrand = (self.b1, self.b2)
         if self.b1p > self.b2p:
             mstrandp = (self.b2p, self.b1p)
@@ -1050,8 +1059,7 @@ class POverslide(Overslide):
 
         args = [(i, mstrand, mstrandp, mstrando, mstrandop) for i in xidems]      
 
-        yidems = map(self.almost_complementary_idem, args)
-#        yidems = dview.map_sync(self.almost_complementary_idem, args)
+        yidems = dview.map_sync(self.almost_complementary_idem, args)
 
         while yidems.count(None) != 0:
             yidems.remove(None)
@@ -1318,38 +1326,26 @@ class PArcslide(Arcslide):
 class PTypeDDStr(TypeDDStr):
 
     def mor_to_d(self, other):
-        """
-        Returns the chain complex of homomorphisms over A(pmc_1) from self to
-        other, where other is a type D structure.
+        """Returns the chain complex of homomorphisms over A(pmc_1) from self to other, where other is a type D structure.
         Examples:
         """
 
         if self.pmc_1 != other.pmc:
-            raise Exception("Can only compute Mor's between structures over \
-            the same algebra.")
+            raise Exception("Can only compute Mor's between structures over the same algebra.")
         #Compile a basis for Mor
         ans = self.pmc_1.alg_basis()
-        args = [(self.basis[i[0]], other.basis[i[1]], self.pmc_1.alg_basis()[i[2]])
-                for i in CartesianProduct(range(0, len(self.basis)),
-                                          range(0, len(other.basis)),
-                                          range(0, len(ans)))]
-        mor_basis = map(self.compute_basis, args)
-#        mor_basis = dview.map_sync(self.compute_basis, args)n
+        args = [(self.basis[i[0]], other.basis[i[1]], self.pmc_1.alg_basis()[i[2]]) for i in CartesianProduct(range(0, len(self.basis)), range(0, len(other.basis)), range(0, len(ans)))]
+        mor_basis = dview.map_sync(self.compute_basis, args)
 
         mult = []
         for i in range(2, self.pmc_1.punctures + 2):
-#            ans = dview.map_sync(self.mult, ans)
-            ans = map(self.mult, ans)
+            ans = dview.map_sync(self.mult, ans)
             ans = reduce(list.__add__, ans, [])
             ans = list(set(ans))
             mult.extend(ans)
 
-        args = [(self.basis[i[0]], other.basis[i[1]], mult[i[2]])
-                for i in CartesianProduct(range(0, len(self.basis)),
-                                          range(0, len(other.basis)),
-                                          range(0, len(mult)))]
-        mor_basis.extend(map(self.compute_basis, args))
-#        mor_basis.extend(dview.map_sync(self.compute_basis, args))
+        args = [(self.basis[i[0]], other.basis[i[1]], mult[i[2]]) for i in CartesianProduct(range(0, len(self.basis)), range(0, len(other.basis)), range(0, len(mult)))]            
+        mor_basis.extend(dview.map_sync(self.compute_basis, args))
 
         mor_basis = list(set(mor_basis))
         mor_basis.remove(0)
@@ -1360,38 +1356,32 @@ class PTypeDDStr(TypeDDStr):
         #delta^1 on Mor in three parts.
         #First: differentiating the algebra element
 
-        diffs1 = map(self.diff1, mor_basis)
-#        diffs1 = dview.map_sync(self.diff1, mor_basis)
+        diffs1 = dview.map_sync(self.diff1, mor_basis)
         self.reducediff(diffs1, diffs)
 
-        #Second: differentiating the image (element of other)
+        #Second: differentiating the image (element of other)        
 
-#        dview.push({'other' : other})
-#        args = [(f, Reference('other')) for f in mor_basis]
-        args = [(f, other) for f in mor_basis]
-        diffs2 = map(self.diff2, args)
-#        diffs2 = dview.map_sync(self.diff2, args)
+        dview.push({'other' : other})
+        args = [(f, Reference('other')) for f in mor_basis]
+        diffs2 = dview.map_sync(self.diff2, args)
         self.reducediff(diffs2, diffs)
 
         #Third: differentiating the source (element of self). This is the only part which outputs non-idempotent algebra elements.
 
-        diffs3 = map(self.diff3, mor_basis)
-#        diffs3 = dview.map_sync(self.diff3, mor_basis)
+        diffs3 = dview.map_sync(self.diff3, mor_basis)
         self.reducediff(diffs3, diffs)
 
         #Now view PMC as over opposite algebra:
         #First, reverse the idempotents.
-        rev_basis = map(self.revids, mor_basis)
-#        rev_basis = dview.map_sync(self.revids, mor_basis)
+        rev_basis = dview.map_sync(self.revids, mor_basis)
 
-#        dview.push({ 'diffs' : diffs })
-        args = [(f, diffs) for f in diffs.keys()]
+        dview.push({ 'diffs' : diffs })
+        args = [(f, Reference('diffs')) for f in diffs.keys()]
         #Now, reverse the algebra element outputs.
-#        rev_diffs = dview.map_sync(self.revalg, args)
-        rev_diffs = map(self.revalg, args)
+        rev_diffs = dview.map_sync(self.revalg, args)
         rev_diffs = dict(rev_diffs)
 
-#        dview.clear()
+        dview.clear()
 
         return PTypeDStr(self.pmc_2.opposite(), rev_basis, rev_diffs)
 
@@ -1404,8 +1394,7 @@ class PTypeDDStr(TypeDDStr):
         (m,a,n)=f.name
         ans = []
         for b in a.differential():
-            ans.append(DElt({DGen((m,b,n), pmc=self.pmc_2, idem=m.idem_2):
-                             AlgElt([Strand_Diagram(self.pmc_2,[],m.idem_2)])}))
+            ans.append(DElt({DGen((m,b,n),pmc=self.pmc_2,idem=m.idem_2):AlgElt([Strand_Diagram(self.pmc_2,[],m.idem_2)])}))
         return (f, ans)
 
     def diff2(self, args):
@@ -1414,8 +1403,7 @@ class PTypeDDStr(TypeDDStr):
         adn = AlgElt([a])*other.delta1(n)
         ans = []
         for (b,p) in adn.basis_expansion():
-            ans.append(DElt({DGen((m,b,p), pmc=self.pmc_2, idem=m.idem_2):
-                             AlgElt([Strand_Diagram(self.pmc_2, [], m.idem_2)])}))
+            ans.append(DElt({DGen((m,b,p),pmc=self.pmc_2,idem=m.idem_2):AlgElt([Strand_Diagram(self.pmc_2,[],m.idem_2)])}))
         return (f, ans)
 
     def diff3(self, f):
